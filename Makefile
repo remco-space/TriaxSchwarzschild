@@ -13,7 +13,12 @@
 compiler=gfortran
 
 #PROFILEDIR=~/t/profile/orblib
- 
+
+
+#PROPRIETARY=proprietary
+ifndef PROPRIETARY
+	PROPRIETARY=sub
+endif
 
 ifeq ($(compiler),ifort) 
 ifdef FAST
@@ -78,9 +83,9 @@ ifeq ($(compiler),gfortran)
   endif
 
    # on MAC OS X we can use the built-in BLAS/LAPACK
-  #flags += -fexternal-blas -framework Accelerate              
+  flags += -fexternal-blas -framework Accelerate              
   # On MAC OS X te build static binaries
-  #flags += -static-libgfortran -static-libgcc     
+  flags += -static-libgfortran -static-libgcc     
 
   fortran90 = gfortran $(flags) -c
   fortran77 = gfortran $(flags) -c
@@ -88,7 +93,7 @@ ifeq ($(compiler),gfortran)
 endif
  
 # define local Galahad directory
-GALAHADDIR = ../galahad-2.3.0000
+#GALAHADDIR = ../galahad-2.3.0000
 #GALAHADDIR = ../galahad-2.4
         
 # Define galahad compiled libary choice (platform dependant)
@@ -97,7 +102,7 @@ GALAHADDIR = ../galahad-2.3.0000
 #GALAHADTYPE= mac.osx.gfo/double/  
 
 # linux, ifort
-GALAHADTYPE= pc.lnx.ifr/double
+#GALAHADTYPE= pc.lnx.ifr/double
 #GALAHADTYPE= pc.lnx.gfo/double
 ##########################################################
 
@@ -134,7 +139,7 @@ DOPOBJ = dop853.o
 #
 ######################################################
 
-MGECDE = sub/numeric_kinds_f.f90 sub/dqxgs.f sub/ellipint.f90 iniparam_f.f90 triaxpotent.f90 dmpotent.f90 interpolpotent.f90
+MGECDE = sub/numeric_kinds_f.f90 sub/dqxgs.f $(PROPRIETARY)/ellipint.f90 iniparam_f.f90 triaxpotent.f90 dmpotent.f90 interpolpotent.f90
 MGEOBJ = numeric_kinds_f.o dqxgs.o iniparam_f.o triaxpotent.o dmpotent.o interpolpotent.o ellipint.o
 
 iniparam_f.o: iniparam_f.f90 numeric_kinds_f.o  
@@ -158,17 +163,17 @@ interpolpotent.o : interpolpotent.f90 triaxpotent.o numeric_kinds_f.o iniparam_f
 numeric_kinds_f.o : ./sub/numeric_kinds_f.f90 
 	$(fortran90) ./sub/numeric_kinds_f.f90
 
-ellipint.o : ./sub/ellipint.f90 
-	$(fortran90) ./sub/ellipint.f90
+ellipint.o : ./$(PROPRIETARY)/ellipint.f90 
+	$(fortran90) ./$(PROPRIETARY)/ellipint.f90
 
 numrep.o: ./sub/numrep.f90 numeric_kinds_f.o 
 	$(fortran77) ./sub/numrep.f90
 
-nag.o : sub/nag.f
-	$(fortran77) sub/nag.f
+nag.o : $(PROPRIETARY)/nag.f
+	$(fortran77) $(PROPRIETARY)/nag.f
 
-numrec_arloc.o : sub/numrec_arloc.f
-	$(fortran77) sub/numrec_arloc.f
+numrec_arloc.o : $(PROPRIETARY)/numrec_arloc.f
+	$(fortran77) $(PROPRIETARY)/numrec_arloc.f
 
 dop853.o: ./sub/dop853.f
 	$(fortran77) ./sub/dop853.f
@@ -210,9 +215,9 @@ triaxmassbin: $(MGEOBJ) triaxmassbin.f90
 #
 #######################################################
 
-ORBLIBCDE= $(MGECDE) sub/numrec_arloc.f $(DOPCDE) orblib_f.f90 
+ORBLIBCDE= $(MGECDE) $(PROPRIETARY)/numrec_arloc.f $(DOPCDE) orblib_f.f90 
 ORBLIBOBJ= $(MGEOBJ) numrec_arloc.o $(DOPOBJ) orblib_f.o 
-ORBLIBABELCDE= $(ABELCDE) sub/numrec_arloc.f $(DOPCDE) orblib_f.f90 
+ORBLIBABELCDE= $(ABELCDE) $(PROPRIETARY)/numrec_arloc.f $(DOPCDE) orblib_f.f90 
 ORBLIBABELOBJ= $(ABELOBJ) numrec_arloc.o $(DOPOBJ) orblib_f.o 
 
 ifeq ($(FAST),TRUE)
@@ -255,10 +260,10 @@ OBJECTS5 = nnls95.o iniparam_f.o numeric_kinds_f.o gausherm.o triaxnnls.o
 
 
 triaxnnls : $(OBJECTS5)  
-	$(link) triaxnnls $(OBJECTS5)   -I$(GALAHADDIR)/modules/$(GALAHADTYPE)  -L$(GALAHADDIR)/objects/$(GALAHADTYPE)  -lgalahad  -lgalahad_hsl -lgalahad_metis -lgalahad_lapack -lgalahad_blas
+	$(link) triaxnnls $(OBJECTS5)  # -I$(GALAHADDIR)/modules/$(GALAHADTYPE)  -L$(GALAHADDIR)/objects/$(GALAHADTYPE)  -lgalahad  -lgalahad_hsl -lgalahad_metis -lgalahad_lapack -lgalahad_blas
 
 triaxnnls.o : triaxnnls.f90 numeric_kinds_f.o iniparam_f.o 
-	$(fortran90) triaxnnls.f90  -I$(GALAHADDIR)/modules/$(GALAHADTYPE)  -L$(GALAHADDIR)/objects/$(GALAHADTYPE)
+	$(fortran90) triaxnnls.f90 # -I$(GALAHADDIR)/modules/$(GALAHADTYPE)  -L$(GALAHADDIR)/objects/$(GALAHADTYPE)
 
 ##########################################
 #

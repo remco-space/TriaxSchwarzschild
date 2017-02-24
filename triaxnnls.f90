@@ -780,7 +780,7 @@ subroutine donnls_store_matrix_and_read_solution()
   open (unit=27,file='sol',action="read", &
          status="old",form="formatted",position="rewind") 
   
-  read (unit=27,fmt=*),orbweight(:)
+  read (unit=27,fmt=*) orbweight(:)
   close (unit=27)
 
 end subroutine donnls_store_matrix_and_read_solution
