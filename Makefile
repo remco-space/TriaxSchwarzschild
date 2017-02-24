@@ -64,7 +64,7 @@ ifeq ($(compiler),gfortran)
    flags +=    -funroll-loops -ftree-loop-linear 
    flags +=  -fwhole-file -fwhole-program  -flto 
   else
-   flags =  -m64 -g  -ggdb -fbounds-check -fcheck-array-temporaries   	
+  # flags =  -m64 -g  -ggdb -fbounds-check -fcheck-array-temporaries   	
   endif
   
   ifdef PROFILEDIR
@@ -267,10 +267,12 @@ triaxnnls.o : triaxnnls.f90 numeric_kinds_f.o iniparam_f.o
 ##########################################
 
 distclean:
-	rm -f *.o *.il *.mod *.dyn work.* *.d *.exe ifc* *.dpi *.spi gmon.out orbitstart orblib triaxmass triaxmassbin triaxnnls orbsol  orblibabel orbitstartabel orbsolabel partgen modelgen
+	rm  *.o *.il *.mod *.dyn work.* *.d *.exe ifc* *.dpi *.spi gmon.out orbitstart orblib triaxmass triaxmassbin triaxnnls orbsol  orblibabel orbitstartabel orbsolabel partgen modelgen
+	rm -r *.dSYM
 
 clean:
-	rm -f *.o *.il *.mod work.* *.d ifc*
+	rm  *.o *.il *.mod work.* *.d ifc* 
+	rm -r *.dSYM
 
 profclean:
 	rm -f *.o

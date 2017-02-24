@@ -1,0 +1,8 @@
+*.mod
+*.dSYM
+*.o
+orbitstart
+orblib
+triaxnnls
+triaxmass
+triaxmassbin
