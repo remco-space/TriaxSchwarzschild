@@ -39,7 +39,7 @@ logical , private :: use_reg
 public :: readorblibs,readobservations,donnls,allpred,makekinem
 public :: stopnnlsfit,add_regularization,FIND_AVERAGE_ORBTYPE
 public :: ADD_REG_TO_ORBMAT,FIND_ORBINT,donnls_nosave
-public :: reg_forcetoabel,donnls_abel !,donnls_galahad
+public :: donnls_galahad,reg_forcetoabel,donnls_abel
 
 contains
 
@@ -261,9 +261,7 @@ contains
 		   !if ( veldiff_l / (sg) > 4.5 .and. vm*vm_ol < 0.0 )  hh(1) = 10.0
                    !1805  if ( veldiff_l / (sg) > 4.5 )  hh(1) = 10.0
                    !if ( veldiff_l / (sg) > 4.5 .and. abs(vm/sg) > 1.5)  hh(1) = 10.0
-				   ! set unreasonable value to hh(1) for the reversed orbits	
-                   if ( veldiff_l / (sg) > 1.5 .and. abs(vm/sg) > 1.5 &
-				       .and. dvelmom(l,1) < 1000.0 .and. dvelmom(l,2) < 1000.0)  hh(1) = 10.0
+                   if ( veldiff_l / (sg) > 1.5 .and. abs(vm/sg) > 1.5 .and. dvelmom(l,1) < 1000.0 .and. dvelmom(l,2) < 1000.0)  hh(1) = 10.0! set unreasonable value to hh(1) for the reversed orbits	
                    if (hh(1) >  9) print*,"removed", l,j,k,veldiff_l /(sg),abs(vm/sg),sg
                    !!!!!!!!!!!!!!!!!!!!!!!!!!
 
@@ -784,6 +782,343 @@ subroutine donnls_store_matrix_and_read_solution()
   close (unit=27)
 
 end subroutine donnls_store_matrix_and_read_solution
+
+subroutine donnls_galahad(save,FitZeroMoment)
+  !CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
+  
+  ! Solve the NNLS problem for the orbital weights
+  
+  !CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
+  integer (kind=i4b),intent(in) :: save,FitZeroMoment
+  !real (kind=dp), dimension(size(orbmat,1),size(orbmat,2)) :: orbtmp
+	real(kind=dp),dimension(:,:),allocatable :: orbtmp 
+  ! Working space and other arrays
+  integer (kind=i4b) :: len, i, j, k  
+  real (kind=dp),dimension(size(econ)) :: tmpcon,tmpecon 
+  real (kind=dp) :: rescale,ran,nc
+  integer (kind=i4b), dimension(orbitsinfit) :: index
+  integer (kind=i4b) :: it, ior, mode,a,b,c,d
+	
+   print*,"  * Solver function memory allocated."
+
+  allocate(orbweight(orbitsinfit))
+
+  if (save .eq. 1) then 
+    !open (unit=36,file=trim(outroot)//"_orbmat.tmp",status="replace",action="write",form="unformatted")
+    open (unit=36,status="SCRATCH",action="readwrite",form="unformatted")
+		print*, "Storing nonzero ORBMAT elements on file..."
+    len = 0
+    do k=1,orbitsinfit
+       do j=1,size(con)
+          if (orbmat(j,k) /= 0.0_dp) then
+             len = len + 1
+             write (unit=36) j, k, orbmat(j,k)
+          endif
+       end do
+    end do
+    print*, "Nonzero elements (%):", len*100.0_sp/(orbitsinfit*size(con))
+    !close (unit=36)
+	else
+    allocate(orbtmp(size(orbmat,1),size(orbmat,2)))
+    orbtmp=orbmat
+  endif
+	
+  ! temporary store orbmat                    
+  !orbtmp=orbmat
+  tmpcon=con
+  tmpecon=econ
+	
+  ! a-b is the observable part of the matrix
+  a=1+1+massconstr+nconstr
+  b=size(orbmat,1)
+  ! c-d is the constraint part of the matrix
+  c=1
+  d=1+massconstr+nconstr
+
+  ! if fitZeroMoment = 1 then we fit the zeroth velocity moment. 
+	! Otherwise it is a constraint.
+  if (fitZeroMoment .eq. 1) then  
+		print*,' Using both the 3D and zeroth moments as constraints'
+		a= a - nconstr
+		d= d - nconstr
+	endif
+	
+  ! FIXME: Scale such that the lowest mass in mass_qgrid*rescale gt 1e-5
+  rescale=1.0e5
+
+  orbmat(:,:)=orbmat(:,:)/rescale
+
+  ! adding error to matrix
+  con(a:b)=con(a:b)/econ(a:b)
+   do it=a,b
+		  if (econ(it) <= 0.0_dp)  print*,"Zero error in ",it,econ(it)
+      if (econ(it) <= 0.0_dp)  stop "Zero error"
+           orbmat(it,:) = orbmat(it,:) / econ(it)
+   end do
+
+  ! normalize the constraint part of the matrix
+  do it=c,d
+     if (abs(con(it)) .gt. 1.0d-40) then
+		  !print*,it,con(it),econ(it)
+		  !  call random_number(ran)
+		  nc=1.0_dp !+ 0.02*ran -0.01 
+          orbmat(it,:) = orbmat(it,:) / con(it) * nc 
+          econ(it) = abs((abs(con(it))+econ(it))/abs(con(it)) * nc - nc)
+          con(it)=nc            
+          !print*,it,con(it),econ(it)	
+     endif	
+  end do
+
+!  Alternative normalisation the constraint part of the matrix
+!  This normalization does not improve the solution convergence.
+!do it=c,d
+!   if (abs(con(it)) .gt. 0.0_dp) then
+!		  !print*,it,con(it),econ(it)
+!		  !  call random_number(ran)
+!		  nc= 1.0_dp / sqrt (sum (orbmat(it,:)**2))  
+!        orbmat(it,:) = orbmat(it,:) * nc 
+!        econ(it) = econ(it) * nc 
+!        con(it)= con(it) * nc           
+!        !print*,it,con(it),econ(it),nc	
+!   endif	
+!end do
+
+
+   call nnlsgal(orbmat(a:b,:), con(a:b),  &
+                orbmat(c:d,:), con(c:d),econ(c:d),orbweight)
+   orbweight=orbweight/rescale                      
+
+   allocate(orbmat(size(con),size(orbtype)))
+	 
+	 if (save .eq. 1) then 
+     print*, "Restoring nonzero ORBMAT from file to memory..."
+     !open (unit=36,file=trim(outroot)//"_orbmat.tmp",status="old",action="read",&
+     !   form="unformatted",position="rewind")
+		 rewind(unit=36)
+     orbmat = 0.0_dp
+     do i=1,len
+      read (unit=36) j, k, orbmat(j,k)
+     end do
+     close (unit=36)
+     
+     !print*, "Shrinking orbmat.tmp" 
+     !open (unit=36,file=trim(outroot)//"_orbmat.tmp",status="replace",action="write",form="unformatted")
+     !write (unit=36) 0.0_dp
+     !close (unit=36)
+	 else
+	    orbmat=orbtmp
+      deallocate(orbtmp)
+		endif
+   con=tmpcon
+   econ=tmpecon
+	 
+   print*,sum(orbweight)
+   print*,'  * Solving done'
+end subroutine donnls_galahad
+
+
+   subroutine nnlsgal(obsmat,cons,fixmat,conf,econf,orbweight)
+   USE GALAHAD_QPB_DOUBLE
+   USE GALAHAD_QPT_DOUBLE                           ! Double precision
+   USE GALAHAD_PRESOLVE_DOUBLE                      ! Double precision
+   USE GALAHAD_SYMBOLS 
+   USE GALAHAD_SMT_DOUBLE
+   real(kind=dp),dimension(:),intent(in) ::conf,econf,cons
+   real(kind=dp),dimension(:,:),intent(in) :: fixmat,obsmat
+   real(kind=dp),dimension(:),intent(out) ::orbweight
+   real(kind=dp),dimension(:,:),allocatable :: tmpmat
+   REAL ( KIND = dp ), PARAMETER :: infinity = 10.0_dp ** 20    
+   REAL ( KIND = dp ), PARAMETER :: rescale=1.0_dp!e4
+   TYPE ( QPT_problem_type ) :: p
+   TYPE ( QPB_data_type ) :: data
+   TYPE ( QPB_control_type ) :: control        
+   TYPE ( QPB_inform_type ) :: info
+   TYPE ( PRESOLVE_control_type ) :: pcontrol
+   TYPE ( PRESOLVE_inform_type )  :: inform
+   TYPE ( PRESOLVE_data_type )    :: pdata
+   
+   INTEGER (kind=i4b) :: n, m, h_ne, a_ne ,i,j,t ,s  
+   INTEGER (kind=i4b),ALLOCATABLE, DIMENSION( : ) :: C_stat, B_stat	
+   integer :: stat
+   real(kind=dp) :: mxv
+
+   n = size(obsmat,2)
+   if (size(obsmat,2) /= size(fixmat,2)) stop ' fixmat wrong size'
+   if (size(cons) /= size(obsmat,1)) stop ' cons wrong size'
+   m = size(fixmat,1)
+   if (m /= size( conf)) stop '  conf wrong size'
+   if (m /= size(econf)) stop ' econf wrong size'
+
+   print*,"n,m,obs:",n,m,size(cons)
+! start problem data
+   ALLOCATE( p%G( n ), p%X_l( n ), p%X_u( n ) )
+   ALLOCATE( p%C( m ), p%C_l( m ), p%C_u( m ) )
+   ALLOCATE( p%X( n ), p%Y( m ), p%Z( n ) ) 
+   ALLOCATE( B_stat( n ), C_stat( m ) ) 
+   ! P%X0 needs to be allocated because QPB forgets to do it. (BUG in qpb)
+   ALLOCATE( p%X0(n) )
+   p%new_problem_structure = .TRUE.           ! new structure
+   p%n = n ; p%m = m ; p%f = 5e5          ! dimensions & objective constant
+	 print*,'call matmul'
+   p%G = matmul(-transpose(obsmat),cons(:))  
+   print*,minval(p%G),maxval(p%G)
+   p%C_l = conf(:)-econf(:)              ! constraint lower bound
+   p%C_u = conf(:)+econf(:)              ! constraint upper bound
+   p%X = 1.0_dp/real(n) ; p%Y = 0.0_dp ; p%Z = 0.0_dp ! start from zero
+   p%X_l =  0.0_dp              ! variable lower bound
+   p%X_u =  infinity ! 1.0_dp *rescale           ! variable upper bound
+!   p%rho_g = 1.0_dp ; p%rho_b = 1.0_dp        ! initial penalty parameters
+   
+
+!  sparse co-ordinate storage format
+   CALL smt_put( p%H%type, 'COORDINATE',s) ! Specify co-ordinate 
+   CALL smt_put( p%A%type, 'COORDINATE',s ) 
+!  Make A
+   a_ne=0
+   mxv=maxval(abs(fixmat(:,:)))*0.0_dp
+    do i=1,m
+      do j=1,n
+         if (abs(fixmat(i,j)) > mxv) a_ne=a_ne+1
+      end do
+   end do
+   p%A%ne = a_ne
+   print*,"sparsity A",a_ne*1.0/(n*1.0*m)*100.0
+   ALLOCATE( p%A%val( a_ne ), p%A%row( a_ne ), p%A%col( a_ne ) )
+   t=0 
+   do i=1,m
+      do j=1,n
+         if (abs(fixmat(i,j)) > mxv) then
+            t=t+1
+            p%A%val(t)=fixmat(i,j)
+            p%A%row(t)=i
+            p%A%col(t)=j
+         endif
+      end do
+   end do
+
+   !print*,'Converting A to row sparse'
+   call  QPT_A_from_C_to_S(p,stat)     
+   IF ( stat /= 0 ) STOP ' Failed to Convert'
+
+
+   print*,'Computing H'
+   allocate(tmpmat(n,n))
+   !FIXME: Replace this loop with the appropriate LAPACK/BLAS call.
+   do i=1,n
+      do j=1,i
+	         tmpmat(i,j)=sum(obsmat(:,i)*obsmat(:,j))
+      enddo
+   enddo
+   print*,'Made matrix'
+   deallocate(orbmat)
+   h_ne=0
+   mxv=maxval(abs(tmpmat))*0.0_dp
+   t=0
+   do i=1,n
+      do j=1,i
+         if (abs(tmpmat(i,j)) > mxv .or. i==j ) H_ne=H_ne+1
+      end do
+   end do
+   p%H%ne = h_ne
+   print*,"sparsity H:",h_ne/((n*(n+1.0))/2.0)*100.0
+   ALLOCATE( p%H%val( h_ne ), p%H%row( H_ne ), p%H%col( H_ne ) )
+   t=0
+   do i=1,n
+      do j=1,i
+         if (abs(tmpmat(i,j)) > mxv .or. i==j ) then
+            t=t+1
+            p%H%val(t)=tmpmat(i,j)
+            p%H%row(t)=i
+            p%H%col(t)=j
+         endif
+      end do
+   end do
+   deallocate(tmpmat)
+   print*,'Converting H to row sparse'
+   call  QPT_H_from_C_to_S(p,stat)
+   IF ( stat /= 0 ) STOP ' Failed to Convert'
+
+   print*,'Calling Solver'
+   !  presolve
+   CALL PRESOLVE_initialize( pcontrol, inform, pdata )
+   IF ( inform%status /= 0 ) STOP
+   pcontrol%print_level =  GALAHAD_TRACE              ! Ask for some output
+   pcontrol%get_x=.true.  ! only need this one.   
+   pcontrol%c_accuracy = 1d-12 !1d-6    good
+   !pcontrol%z_accuracy = 1d-12 !1d-6
+   pcontrol%pivot_tol = 1d-20  !1d-10   good
+   pcontrol%min_rel_improve = 1d-20 !1d-10  
+   pcontrol%max_growth_factor= 1d4 ! 1d8
+   pcontrol%infinity = infinity
+   !pcontrol%termination=GALAHAD_FULL_PRESOLVE
+   !! apply presolving to reduce the problem
+   !CALL PRESOLVE_apply( p, pcontrol, inform, pdata )
+   IF ( inform%status /= 0 ) STOP
+
+   CALL QPB_initialize( data, control)!,info )         ! Initialize control parameters                                          
+   !   control%rho_g = 1.0_dp ; control%rho_b = 1.0_dp        ! initial penalty parameters
+   control%infinity = infinity                  ! Set infinity
+   control%print_level = 1
+   
+   !for GALAHAD 2.3.0000
+   !control%restore_problem=0
+   ! control%generate_sif_file=.true.
+   ! control%sif_file_name=''
+   ! control%print_level = 4
+   control%maxit=n+m
+   control%cg_maxit=(n+m+1)*4.0   ! *3.0 /2.0 
+
+   !galahad 2.4 for QP
+   !control%scale=7   
+   !!control%presolve=.TRUE.
+   !control%QPB_control%print_level=1
+   !control%QPA_control%print_level=1
+   !control%QPC_control%print_level=1
+   !control%CQP_control%print_level=1
+   !control%SCALE_control%print_level=1
+   !control%PRESOLVE_control%print_level=1
+   !control%QPB_control%maxit=n+m
+   !control%QPB_control%cg_maxit=(n+m+1)*3.0 /2.0 !(N+M+1)*4 
+   !!control%CQP_control%restore_problem=0
+   !!control%CQP_control%space_critical=.TRUE.
+   !control%quadratic_programming_solver='qpb'    
+   
+   CALL QPB_solve( p,data, control, info,C_stat,B_stat )  
+   !CALL QPC_solve( p,C_stat, B_stat,data, control, info )
+   IF ( info%status == 0 ) THEN                 !  Successful return
+	print*,sum(p%X)
+   ELSE                                         !  Error returns
+     WRITE( 6, "( ' QPB_solve exit status = ', I6 ) " ) info%status
+   END IF
+
+   ! restore the solved reduced problem to the original formulation
+   !pcontrol%print_level =  1
+   !pcontrol%get_q=.true.
+   !pcontrol%get_z=.true.
+   !pcontrol%get_c=.true.
+   !pcontrol%get_y=.true.
+   !pcontrol%get_x=.true.
+   !pcontrol%get_c_bounds=.true.
+   !CALL PRESOLVE_restore( p, pcontrol, inform, pdata )
+   print*,'resolving done'
+   IF ( inform%status /= 0 ) STOP
+
+   control%print_level =0
+   pcontrol%print_level =0
+   CALL QPB_terminate( data, control, info )    !  delete internal workspace
+   CALL PRESOLVE_terminate( pcontrol, inform, pdata )
+   orbweight(:)=p%X(:)
+
+   print*,'finished finding orbweight'
+   ! Deallocate arrays
+   DEALLOCATE( p%G, p%X_l, p%X_u )
+   DEALLOCATE( p%C, p%C_l, p%C_u )
+   DEALLOCATE( p%X, p%Y, p%Z)
+   DEALLOCATE( p%H%ptr, p%A%ptr)
+   DEALLOCATE( p%H%val, p%H%col)
+   DEALLOCATE( p%A%val, p%A%col)
+ END subroutine nnlsgal
+
 
 subroutine donnls_nosave()
   !CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
@@ -1376,13 +1711,13 @@ if (i < 0 .or. i > 6) stop " Input not valid."
 
 print*,"Starting Solver"
 
-!if (i == 0) call donnls_galahad(0,1)
+if (i == 0) call donnls_galahad(0,1)
 if (i == 1) call donnls_nosave()
 if (i == 2) call donnls()
 if (i == 3) call donnls_abel()
-!if (i == 4) call donnls_galahad(1,1)
-!if (i == 5) call donnls_galahad(0,0)
-!if (i == 6) call donnls_galahad(1,0)
+if (i == 4) call donnls_galahad(1,1)
+if (i == 5) call donnls_galahad(0,0)
+if (i == 6) call donnls_galahad(1,0)
  
 call allpred()
 call makekinem(0)
